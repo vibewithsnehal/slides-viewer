@@ -262,6 +262,30 @@ body.sv-bg-ember { background: linear-gradient(135deg, #1a0a00, #2d1400, #3d1e0a
   display: none; align-items: center; gap: 4px;
 }
 #sv-custom-split-wrap.sv-show { display: flex; }
+
+/* ── Draw Mode ── */
+#sv-draw-canvas {
+  position: fixed; inset: 0; z-index: 500;
+  cursor: crosshair;
+  display: none;
+}
+#sv-draw-canvas.sv-draw-active { display: block; }
+body.sv-drawing { cursor: crosshair; }
+#sv-toolbar .sv-draw-active-btn { background: #e53e3e !important; border-color: #e53e3e !important; color: #fff !important; }
+#sv-draw-color-wrap {
+  display: none; align-items: center; gap: 4px;
+}
+#sv-draw-color-wrap.sv-show { display: flex; }
+#sv-draw-color {
+  width: 28px; height: 28px; border: 2px solid var(--sv-glass-border);
+  border-radius: 6px; padding: 0; cursor: pointer; background: none;
+}
+#sv-draw-size {
+  width: 52px; background: rgba(255,255,255,0.08);
+  border: 1px solid var(--sv-glass-border); color: var(--sv-text);
+  padding: 4px 6px; border-radius: 6px; font-size: .8rem;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
 </style>
 </head>
 <body class="sv-bg-default">
@@ -318,6 +342,18 @@ body.sv-bg-ember { background: linear-gradient(135deg, #1a0a00, #2d1400, #3d1e0a
     <option value="ember">Ember</option>
   </select>
   <div class="sv-tb-sep"></div>
+  <button id="sv-btn-draw" title="Draw mode (D)">&#9998;</button>
+  <button id="sv-btn-clear-draw" title="Clear drawing on this slide">&#10060;</button>
+  <div id="sv-draw-color-wrap">
+    <input type="color" id="sv-draw-color" value="#ff4444" title="Marker color">
+    <select id="sv-draw-size" title="Marker size">
+      <option value="3">Thin</option>
+      <option value="5" selected>Medium</option>
+      <option value="10">Thick</option>
+      <option value="18">Bold</option>
+    </select>
+  </div>
+  <div class="sv-tb-sep"></div>
   <button id="sv-btn-particles">Particles</button>
   <button id="sv-btn-fullscreen" title="Fullscreen (F)">&#x26F6;</button>
   <button id="sv-btn-overview" title="Overview (O)">&#9638;</button>
@@ -345,6 +381,9 @@ body.sv-bg-ember { background: linear-gradient(135deg, #1a0a00, #2d1400, #3d1e0a
   <div id="sv-overview-grid"></div>
 </div>
 
+<!-- Draw Canvas -->
+<canvas id="sv-draw-canvas"></canvas>
+
 <!-- Particles Canvas -->
 <div id="sv-particles"><canvas></canvas></div>
 
@@ -361,6 +400,8 @@ body.sv-bg-ember { background: linear-gradient(135deg, #1a0a00, #2d1400, #3d1e0a
   let particlesOn = false;
   let overviewOpen = false;
   let animFrameId = null;
+  let drawMode = false;
+  let drawingData = {};  // per-slide drawing storage: { slideIndex: ImageData }
 
   /* ── DOM refs ── */
   const $ = s => document.querySelector(s);
@@ -378,6 +419,8 @@ body.sv-bg-ember { background: linear-gradient(135deg, #1a0a00, #2d1400, #3d1e0a
   const canvas = particlesDiv.querySelector('canvas');
   const ctx = canvas.getContext('2d');
   const importedStylesContainer = $('#sv-imported-styles');
+  const drawCanvas = $('#sv-draw-canvas');
+  const drawCtx = drawCanvas.getContext('2d');
 
   /* ── File Import ── */
   dropZone.addEventListener('click', () => fileInput.click());
@@ -633,6 +676,8 @@ body.sv-bg-ember { background: linear-gradient(135deg, #1a0a00, #2d1400, #3d1e0a
   /* ── Navigation ── */
   function goToSlide(idx) {
     if (idx < 0 || idx >= slides.length) return;
+    // Save current drawing before navigating away
+    if (drawMode && drawCanvas.width > 0) saveDrawing();
     currentIndex = idx;
 
     const allSlides = stage.querySelectorAll('.sv-slide');
@@ -649,6 +694,8 @@ body.sv-bg-ember { background: linear-gradient(135deg, #1a0a00, #2d1400, #3d1e0a
       }
     });
     updateUI();
+    // Restore drawing for new slide
+    if (drawMode) restoreDrawing();
   }
 
   function next() { if (currentIndex < slides.length - 1) goToSlide(currentIndex + 1); }
@@ -730,6 +777,104 @@ body.sv-bg-ember { background: linear-gradient(135deg, #1a0a00, #2d1400, #3d1e0a
     if (sel && rawHTML) buildSlides('custom', sel);
   });
 
+  /* ── Drawing ── */
+  function resizeDrawCanvas() {
+    // Save current drawing before resize
+    let saved = null;
+    if (drawCanvas.width > 0 && drawCanvas.height > 0) {
+      saved = drawCtx.getImageData(0, 0, drawCanvas.width, drawCanvas.height);
+    }
+    drawCanvas.width = window.innerWidth;
+    drawCanvas.height = window.innerHeight;
+    // Can't restore old ImageData after resize (dimensions change), so reload from store
+    restoreDrawing();
+  }
+
+  function saveDrawing() {
+    if (drawCanvas.width > 0 && drawCanvas.height > 0) {
+      drawingData[currentIndex] = drawCanvas.toDataURL();
+    }
+  }
+
+  function restoreDrawing() {
+    drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    const data = drawingData[currentIndex];
+    if (data) {
+      const img = new Image();
+      img.onload = () => drawCtx.drawImage(img, 0, 0);
+      img.src = data;
+    }
+  }
+
+  function clearCurrentDrawing() {
+    drawCtx.clearRect(0, 0, drawCanvas.width, drawCanvas.height);
+    delete drawingData[currentIndex];
+  }
+
+  function toggleDraw() {
+    drawMode = !drawMode;
+    drawCanvas.classList.toggle('sv-draw-active', drawMode);
+    document.body.classList.toggle('sv-drawing', drawMode);
+    $('#sv-btn-draw').classList.toggle('sv-draw-active-btn', drawMode);
+    $('#sv-draw-color-wrap').classList.toggle('sv-show', drawMode);
+    if (drawMode) {
+      resizeDrawCanvas();
+    } else {
+      saveDrawing();
+    }
+  }
+
+  // Draw events
+  let isDrawing = false;
+  drawCanvas.addEventListener('mousedown', e => {
+    isDrawing = true;
+    drawCtx.beginPath();
+    drawCtx.moveTo(e.clientX, e.clientY);
+  });
+  drawCanvas.addEventListener('mousemove', e => {
+    if (!isDrawing) return;
+    drawCtx.strokeStyle = $('#sv-draw-color').value;
+    drawCtx.lineWidth = parseInt($('#sv-draw-size').value);
+    drawCtx.lineCap = 'round';
+    drawCtx.lineJoin = 'round';
+    drawCtx.lineTo(e.clientX, e.clientY);
+    drawCtx.stroke();
+  });
+  drawCanvas.addEventListener('mouseup', () => { isDrawing = false; saveDrawing(); });
+  drawCanvas.addEventListener('mouseleave', () => { isDrawing = false; saveDrawing(); });
+
+  // Touch draw
+  drawCanvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    isDrawing = true;
+    const t = e.touches[0];
+    drawCtx.beginPath();
+    drawCtx.moveTo(t.clientX, t.clientY);
+  });
+  drawCanvas.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (!isDrawing) return;
+    const t = e.touches[0];
+    drawCtx.strokeStyle = $('#sv-draw-color').value;
+    drawCtx.lineWidth = parseInt($('#sv-draw-size').value);
+    drawCtx.lineCap = 'round';
+    drawCtx.lineJoin = 'round';
+    drawCtx.lineTo(t.clientX, t.clientY);
+    drawCtx.stroke();
+  });
+  drawCanvas.addEventListener('touchend', e => { e.preventDefault(); isDrawing = false; saveDrawing(); });
+
+  // Toolbar buttons
+  $('#sv-btn-draw').addEventListener('click', toggleDraw);
+  $('#sv-btn-clear-draw').addEventListener('click', clearCurrentDrawing);
+
+  // Drawing save/restore is handled inside goToSlide directly.
+
+  // Resize draw canvas on window resize
+  window.addEventListener('resize', () => {
+    if (drawMode) resizeDrawCanvas();
+  });
+
   /* ── Keyboard ── */
   document.addEventListener('keydown', e => {
     if (presentation.style.display === 'none') return;
@@ -746,8 +891,13 @@ body.sv-bg-ember { background: linear-gradient(135deg, #1a0a00, #2d1400, #3d1e0a
         e.preventDefault(); toggleOverview(); break;
       case 't': case 'T':
         e.preventDefault(); toggleToolbar(); break;
+      case 'd': case 'D':
+        e.preventDefault(); toggleDraw(); break;
+      case 'c': case 'C':
+        e.preventDefault(); clearCurrentDrawing(); break;
       case 'Escape':
-        if (overviewOpen) { toggleOverview(); e.preventDefault(); }
+        if (drawMode) { toggleDraw(); e.preventDefault(); }
+        else if (overviewOpen) { toggleOverview(); e.preventDefault(); }
         else if (document.fullscreenElement) { document.exitFullscreen(); e.preventDefault(); }
         break;
     }
