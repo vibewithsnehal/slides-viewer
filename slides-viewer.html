@@ -1,0 +1,936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Slides Viewer</title>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --sv-bg: #0a0a1a;
+  --sv-surface: rgba(255,255,255,0.06);
+  --sv-border: rgba(255,255,255,0.12);
+  --sv-text: #e8e8f0;
+  --sv-text-dim: rgba(255,255,255,0.5);
+  --sv-accent: #6c63ff;
+  --sv-accent2: #ff6384;
+  --sv-glass: rgba(20,20,40,0.75);
+  --sv-glass-border: rgba(255,255,255,0.15);
+  --sv-radius: 12px;
+}
+
+html, body {
+  height: 100%; width: 100%;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--sv-bg);
+  color: var(--sv-text);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Landing Page ── */
+#sv-landing {
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  height: 100%; width: 100%;
+  position: relative; z-index: 1;
+}
+#sv-landing h1 { font-size: 2.4rem; font-weight: 700; margin-bottom: .4rem; color: var(--sv-text); }
+#sv-landing p.sv-sub { color: var(--sv-text-dim); margin-bottom: 2rem; font-size: 1.05rem; }
+
+#sv-drop-zone {
+  width: min(520px, 90vw); height: 240px;
+  border: 2px dashed var(--sv-border);
+  border-radius: var(--sv-radius);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  cursor: pointer;
+  transition: border-color .25s, background .25s;
+  background: var(--sv-surface);
+}
+#sv-drop-zone.over { border-color: var(--sv-accent); background: rgba(108,99,255,0.1); }
+#sv-drop-zone svg { width: 48px; height: 48px; stroke: var(--sv-text-dim); margin-bottom: 1rem; }
+#sv-drop-zone span { color: var(--sv-text-dim); font-size: .95rem; }
+#sv-drop-zone span b { color: var(--sv-accent); }
+
+#sv-file-input { display: none; }
+
+/* ── Presentation Container ── */
+#sv-presentation {
+  display: none; height: 100%; width: 100%;
+  position: relative; overflow: hidden;
+}
+
+/* ── Slide Stage ── */
+#sv-stage {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  perspective: 1200px;
+}
+
+.sv-slide {
+  position: absolute;
+  width: 100%; height: 100%;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0;
+  pointer-events: none;
+  transition: none;
+}
+.sv-slide.sv-active { opacity: 1; pointer-events: auto; z-index: 2; }
+.sv-slide.sv-prev, .sv-slide.sv-next { z-index: 1; }
+
+/* Inner wrapper that holds the imported content, scaled to fit */
+.sv-slide-inner {
+  transform-origin: center center;
+  position: relative;
+}
+
+/* Fallback styling for simple content (no original styles) */
+.sv-slide-inner.sv-plain {
+  max-width: min(1100px, 90vw); max-height: 80vh;
+  padding: 3rem 3.5rem;
+  overflow-y: auto;
+  border-radius: var(--sv-radius);
+  background: var(--sv-surface);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--sv-border);
+  font-size: 1.15rem; line-height: 1.7;
+  color: var(--sv-text);
+}
+.sv-slide-inner.sv-plain h1 { font-size: 2.2rem; margin-bottom: .7rem; font-weight: 700; }
+.sv-slide-inner.sv-plain h2 { font-size: 1.7rem; margin-bottom: .6rem; font-weight: 600; }
+.sv-slide-inner.sv-plain h3 { font-size: 1.35rem; margin-bottom: .5rem; font-weight: 600; }
+.sv-slide-inner.sv-plain p { margin-bottom: .8rem; }
+.sv-slide-inner.sv-plain ul, .sv-slide-inner.sv-plain ol { margin: .6rem 0 .8rem 1.5rem; }
+.sv-slide-inner.sv-plain li { margin-bottom: .35rem; }
+.sv-slide-inner.sv-plain code { background: rgba(255,255,255,0.08); padding: .15em .4em; border-radius: 4px; font-size: .92em; }
+.sv-slide-inner.sv-plain pre { background: rgba(0,0,0,0.35); padding: 1rem; border-radius: 8px; overflow-x: auto; margin: .8rem 0; }
+.sv-slide-inner.sv-plain pre code { background: none; padding: 0; }
+.sv-slide-inner.sv-plain img { max-width: 100%; border-radius: 8px; }
+.sv-slide-inner.sv-plain blockquote { border-left: 3px solid var(--sv-accent); padding-left: 1rem; color: var(--sv-text-dim); margin: .8rem 0; }
+
+/* ── Transitions ── */
+.sv-trans-fade .sv-slide { transition: opacity .55s ease; }
+.sv-trans-fade .sv-slide.sv-active { opacity: 1; transform: none; }
+.sv-trans-fade .sv-slide.sv-prev, .sv-trans-fade .sv-slide.sv-next { opacity: 0; }
+
+.sv-trans-slide-left .sv-slide { transition: opacity .5s ease, transform .5s ease; }
+.sv-trans-slide-left .sv-slide.sv-active { opacity: 1; transform: translateX(0); }
+.sv-trans-slide-left .sv-slide.sv-prev { opacity: 0; transform: translateX(-100%); }
+.sv-trans-slide-left .sv-slide.sv-next { opacity: 0; transform: translateX(100%); }
+
+.sv-trans-slide-right .sv-slide { transition: opacity .5s ease, transform .5s ease; }
+.sv-trans-slide-right .sv-slide.sv-active { opacity: 1; transform: translateX(0); }
+.sv-trans-slide-right .sv-slide.sv-prev { opacity: 0; transform: translateX(100%); }
+.sv-trans-slide-right .sv-slide.sv-next { opacity: 0; transform: translateX(-100%); }
+
+.sv-trans-zoom .sv-slide { transition: opacity .5s ease, transform .5s ease; }
+.sv-trans-zoom .sv-slide.sv-active { opacity: 1; transform: scale(1); }
+.sv-trans-zoom .sv-slide.sv-prev { opacity: 0; transform: scale(0.6); }
+.sv-trans-zoom .sv-slide.sv-next { opacity: 0; transform: scale(1.4); }
+
+.sv-trans-flip .sv-slide { transition: opacity .6s ease, transform .6s ease; backface-visibility: hidden; }
+.sv-trans-flip .sv-slide.sv-active { opacity: 1; transform: rotateY(0deg); }
+.sv-trans-flip .sv-slide.sv-prev { opacity: 0; transform: rotateY(-90deg); }
+.sv-trans-flip .sv-slide.sv-next { opacity: 0; transform: rotateY(90deg); }
+
+.sv-trans-cube .sv-slide { transition: opacity .6s ease, transform .6s ease; transform-origin: center center; }
+.sv-trans-cube .sv-slide.sv-active { opacity: 1; transform: rotateY(0deg) translateZ(0); }
+.sv-trans-cube .sv-slide.sv-prev { opacity: 0; transform: rotateY(-90deg) translateZ(200px); }
+.sv-trans-cube .sv-slide.sv-next { opacity: 0; transform: rotateY(90deg) translateZ(200px); }
+
+/* ── In-slide Animations ── */
+.sv-anim-item { opacity: 0; transition: opacity .5s ease, transform .5s ease, filter .5s ease; }
+
+.sv-anim-fade-up .sv-anim-item { transform: translateY(24px); }
+.sv-anim-fade-up .sv-anim-item.sv-anim-visible { opacity: 1; transform: translateY(0); }
+
+.sv-anim-scale-in .sv-anim-item { transform: scale(0.85); }
+.sv-anim-scale-in .sv-anim-item.sv-anim-visible { opacity: 1; transform: scale(1); }
+
+.sv-anim-blur-in .sv-anim-item { filter: blur(8px); }
+.sv-anim-blur-in .sv-anim-item.sv-anim-visible { opacity: 1; filter: blur(0); }
+
+.sv-anim-none .sv-anim-item { opacity: 1 !important; transform: none !important; filter: none !important; }
+
+/* ── Toolbar ── */
+#sv-toolbar {
+  position: fixed; top: 12px; left: 50%; transform: translateX(-50%);
+  display: none; align-items: center; gap: 8px;
+  padding: 8px 14px;
+  background: var(--sv-glass);
+  backdrop-filter: blur(18px);
+  border: 1px solid var(--sv-glass-border);
+  border-radius: 40px;
+  z-index: 1000;
+  font-size: .82rem;
+  opacity: 0; transition: opacity .3s;
+  flex-wrap: wrap; justify-content: center;
+}
+#sv-toolbar.sv-visible { opacity: 1; }
+#sv-toolbar.sv-hidden { opacity: 0; pointer-events: none; }
+#sv-toolbar.sv-autohide { transition: opacity .4s; }
+#sv-toolbar.sv-autohide:hover { opacity: 1; pointer-events: auto; }
+#sv-toolbar label { color: var(--sv-text-dim); white-space: nowrap; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+#sv-toolbar select, #sv-toolbar button, #sv-toolbar input[type="text"] {
+  background: rgba(255,255,255,0.08);
+  border: 1px solid var(--sv-glass-border);
+  color: var(--sv-text);
+  padding: 4px 10px; border-radius: 6px;
+  font-size: .8rem; cursor: pointer;
+  outline: none;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+#sv-toolbar select:hover, #sv-toolbar button:hover { background: rgba(255,255,255,0.14); }
+#sv-toolbar button.sv-active { background: var(--sv-accent); border-color: var(--sv-accent); }
+
+.sv-tb-sep { width: 1px; height: 20px; background: var(--sv-glass-border); flex-shrink: 0; }
+
+/* ── Progress Bar ── */
+#sv-progress-bar {
+  position: fixed; bottom: 0; left: 0; height: 3px;
+  background: linear-gradient(90deg, var(--sv-accent), var(--sv-accent2));
+  z-index: 1000; transition: width .35s ease;
+}
+
+/* ── Slide Counter ── */
+#sv-slide-counter {
+  position: fixed; bottom: 14px; right: 20px;
+  color: var(--sv-text-dim); font-size: .85rem;
+  z-index: 1000;
+  background: var(--sv-glass); backdrop-filter: blur(12px);
+  padding: 4px 12px; border-radius: 20px;
+  border: 1px solid var(--sv-glass-border);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* ── Overview Mode ── */
+#sv-overview {
+  display: none; position: fixed; inset: 0; z-index: 2000;
+  background: rgba(0,0,0,0.9);
+  overflow-y: auto; padding: 2rem;
+}
+#sv-overview.sv-open { display: block; }
+#sv-overview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1.2rem; max-width: 1400px; margin: 0 auto;
+}
+.sv-overview-card {
+  background: var(--sv-surface); border: 1px solid var(--sv-border);
+  border-radius: var(--sv-radius);
+  cursor: pointer; transition: transform .2s, border-color .2s;
+  position: relative; overflow: hidden;
+  aspect-ratio: 16/10;
+}
+.sv-overview-card:hover { transform: scale(1.03); border-color: var(--sv-accent); }
+.sv-overview-card.sv-current { border-color: var(--sv-accent); box-shadow: 0 0 0 2px rgba(108,99,255,0.3); }
+.sv-overview-card .sv-card-num {
+  position: absolute; top: 8px; right: 10px;
+  background: var(--sv-accent); color: #fff; font-size: .7rem;
+  padding: 1px 7px; border-radius: 10px; z-index: 10;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.sv-overview-card .sv-card-content {
+  transform-origin: top left;
+  pointer-events: none;
+  position: absolute; top: 0; left: 0;
+}
+
+/* ── Particles ── */
+#sv-particles {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+}
+#sv-particles canvas { width: 100%; height: 100%; }
+
+/* ── Background Gradients ── */
+body.sv-bg-default { background: #0a0a1a; }
+body.sv-bg-ocean { background: linear-gradient(135deg, #0f2027, #203a43, #2c5364); }
+body.sv-bg-sunset { background: linear-gradient(135deg, #2d1b3d, #4a1942, #6b2048); }
+body.sv-bg-forest { background: linear-gradient(135deg, #0a1f0a, #1a3a1a, #0d2818); }
+body.sv-bg-midnight { background: linear-gradient(135deg, #020111, #0a0a2e, #16163a); }
+body.sv-bg-ember { background: linear-gradient(135deg, #1a0a00, #2d1400, #3d1e0a); }
+
+/* ── Responsive ── */
+@media (max-width: 700px) {
+  #sv-toolbar { font-size: .72rem; padding: 6px 10px; gap: 5px; }
+}
+
+/* ── Custom Split Selector Input ── */
+#sv-custom-split-wrap {
+  display: none; align-items: center; gap: 4px;
+}
+#sv-custom-split-wrap.sv-show { display: flex; }
+</style>
+</head>
+<body class="sv-bg-default">
+
+<!-- Landing Page -->
+<div id="sv-landing">
+  <h1>Slides Viewer</h1>
+  <p class="sv-sub">Import an HTML file to create a beautiful presentation</p>
+  <div id="sv-drop-zone" tabindex="0">
+    <svg viewBox="0 0 48 48" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M24 32V12M16 20l8-8 8 8"/>
+      <path d="M8 32v4a4 4 0 004 4h24a4 4 0 004-4v-4"/>
+    </svg>
+    <span>Drag &amp; drop an HTML file here or <b>click to browse</b></span>
+  </div>
+  <input type="file" id="sv-file-input" accept=".html,.htm">
+</div>
+
+<!-- Presentation View -->
+<div id="sv-presentation">
+  <div id="sv-stage"></div>
+</div>
+
+<!-- Injected styles from imported HTML go here -->
+<div id="sv-imported-styles"></div>
+
+<!-- Toolbar -->
+<div id="sv-toolbar">
+  <label>Transition:</label>
+  <select id="sv-sel-transition">
+    <option value="fade">Fade</option>
+    <option value="slide-left">Slide Left</option>
+    <option value="slide-right">Slide Right</option>
+    <option value="zoom">Zoom</option>
+    <option value="flip">Flip</option>
+    <option value="cube">Cube</option>
+  </select>
+  <div class="sv-tb-sep"></div>
+  <label>Animation:</label>
+  <select id="sv-sel-animation">
+    <option value="fade-up">Fade Up</option>
+    <option value="scale-in">Scale In</option>
+    <option value="blur-in">Blur In</option>
+    <option value="none">None</option>
+  </select>
+  <div class="sv-tb-sep"></div>
+  <label>Background:</label>
+  <select id="sv-sel-bg">
+    <option value="default">Default</option>
+    <option value="ocean">Ocean</option>
+    <option value="sunset">Sunset</option>
+    <option value="forest">Forest</option>
+    <option value="midnight">Midnight</option>
+    <option value="ember">Ember</option>
+  </select>
+  <div class="sv-tb-sep"></div>
+  <button id="sv-btn-particles">Particles</button>
+  <button id="sv-btn-fullscreen" title="Fullscreen (F)">&#x26F6;</button>
+  <button id="sv-btn-overview" title="Overview (O)">&#9638;</button>
+  <button id="sv-btn-export" title="Export HTML">&#x2913;</button>
+  <div class="sv-tb-sep"></div>
+  <label>Split:</label>
+  <select id="sv-sel-split">
+    <option value="auto">Auto</option>
+    <option value="custom">Custom Selector</option>
+  </select>
+  <div id="sv-custom-split-wrap">
+    <input type="text" id="sv-custom-split" placeholder="e.g. .slide">
+    <button id="sv-custom-split-apply">Go</button>
+  </div>
+</div>
+
+<!-- Progress Bar -->
+<div id="sv-progress-bar"></div>
+
+<!-- Slide Counter -->
+<div id="sv-slide-counter"></div>
+
+<!-- Overview -->
+<div id="sv-overview">
+  <div id="sv-overview-grid"></div>
+</div>
+
+<!-- Particles Canvas -->
+<div id="sv-particles"><canvas></canvas></div>
+
+<script>
+(function(){
+  /* ── State ── */
+  let slides = [];        // Array of { html, isRichSlide, width, height }
+  let currentIndex = 0;
+  let rawHTML = '';
+  let importedStyles = '';
+  let importedLinks = '';
+  let transition = 'fade';
+  let animation = 'fade-up';
+  let particlesOn = false;
+  let overviewOpen = false;
+  let animFrameId = null;
+
+  /* ── DOM refs ── */
+  const $ = s => document.querySelector(s);
+  const landing = $('#sv-landing');
+  const presentation = $('#sv-presentation');
+  const stage = $('#sv-stage');
+  const toolbar = $('#sv-toolbar');
+  const progressBar = $('#sv-progress-bar');
+  const counter = $('#sv-slide-counter');
+  const overview = $('#sv-overview');
+  const overviewGrid = $('#sv-overview-grid');
+  const dropZone = $('#sv-drop-zone');
+  const fileInput = $('#sv-file-input');
+  const particlesDiv = $('#sv-particles');
+  const canvas = particlesDiv.querySelector('canvas');
+  const ctx = canvas.getContext('2d');
+  const importedStylesContainer = $('#sv-imported-styles');
+
+  /* ── File Import ── */
+  dropZone.addEventListener('click', () => fileInput.click());
+  dropZone.addEventListener('keydown', e => { if(e.key==='Enter') fileInput.click(); });
+  fileInput.addEventListener('change', e => { if(e.target.files[0]) loadFile(e.target.files[0]); });
+
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('over');
+    const f = e.dataTransfer.files[0];
+    if(f && /\.html?$/i.test(f.name)) loadFile(f);
+  });
+
+  function loadFile(file) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      rawHTML = e.target.result;
+      buildSlides('auto');
+    };
+    reader.readAsText(file);
+  }
+
+  /* ── Extract styles and links from parsed doc ── */
+  function extractStyles(doc) {
+    let styles = '';
+    let links = '';
+    doc.querySelectorAll('style').forEach(s => { styles += s.outerHTML + '\n'; });
+    doc.querySelectorAll('link[rel="stylesheet"]').forEach(l => { links += l.outerHTML + '\n'; });
+    return { styles, links };
+  }
+
+  /* ── Slide Splitting ── */
+  function buildSlides(mode, customSelector) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(rawHTML, 'text/html');
+    // Remove scripts for safety
+    doc.querySelectorAll('script').forEach(s => s.remove());
+
+    // Extract styles
+    const extracted = extractStyles(doc);
+    importedStyles = extracted.styles;
+    importedLinks = extracted.links;
+
+    let parts = []; // { html, isRichSlide, width, height }
+
+    if (mode === 'custom' && customSelector) {
+      try {
+        const els = doc.body.querySelectorAll(customSelector);
+        if (els.length > 0) {
+          els.forEach(el => {
+            const w = el.style.width || el.getAttribute('width');
+            const h = el.style.height || el.getAttribute('height');
+            parts.push({
+              html: el.outerHTML,
+              isRichSlide: true,
+              width: parseDim(w, el),
+              height: parseDim(h, el)
+            });
+          });
+        }
+      } catch(e) { /* invalid selector, fall through */ }
+    }
+
+    if (parts.length === 0 && mode !== 'custom') {
+      // Priority 1: elements with class "slide" (common pattern)
+      const slideEls = doc.body.querySelectorAll('.slide, [class*="slide"]');
+      // Filter: only use if these look like actual slide containers
+      // (have content, and there are multiple)
+      const realSlides = Array.from(slideEls).filter(el => {
+        // Exclude things like slide-label which are just labels
+        return el.children.length > 0 && el.textContent.trim().length > 20;
+      });
+      if (realSlides.length > 1) {
+        realSlides.forEach(el => {
+          parts.push({
+            html: el.outerHTML,
+            isRichSlide: true,
+            width: getDimFromCSS(el, 'width', doc),
+            height: getDimFromCSS(el, 'height', doc)
+          });
+        });
+      }
+    }
+
+    if (parts.length === 0 && mode !== 'custom') {
+      // Priority 2: <section> elements
+      const sections = doc.body.querySelectorAll('section');
+      if (sections.length > 0) {
+        sections.forEach(s => parts.push({ html: s.innerHTML, isRichSlide: false }));
+      }
+    }
+
+    if (parts.length === 0 && mode !== 'custom') {
+      // Priority 3: <hr> separators
+      const hrs = doc.body.querySelectorAll('hr');
+      if (hrs.length > 0) {
+        const html = doc.body.innerHTML;
+        const segments = html.split(/<hr\s*\/?>/gi);
+        segments.forEach(s => {
+          s = s.trim();
+          if (s.length > 0) parts.push({ html: s, isRichSlide: false });
+        });
+      }
+    }
+
+    if (parts.length === 0 && mode !== 'custom') {
+      // Priority 4: headings h1/h2
+      const children = Array.from(doc.body.children);
+      let buf = [];
+      children.forEach(el => {
+        const tag = el.tagName;
+        if ((tag === 'H1' || tag === 'H2') && buf.length > 0) {
+          parts.push({ html: buf.join(''), isRichSlide: false });
+          buf = [];
+        }
+        buf.push(el.outerHTML);
+      });
+      if (buf.length > 0) parts.push({ html: buf.join(''), isRichSlide: false });
+    }
+
+    if (parts.length === 0) {
+      parts = [{ html: doc.body.innerHTML, isRichSlide: false }];
+    }
+
+    slides = parts;
+    currentIndex = 0;
+    startPresentation();
+  }
+
+  /* Helpers to get dimensions from CSS variables or inline styles */
+  function parseDim(val, el) {
+    if (!val) return null;
+    if (val.includes('var(')) {
+      // Can't resolve CSS vars from parsed doc easily; return null
+      return null;
+    }
+    const n = parseFloat(val);
+    if (!isNaN(n)) return n;
+    return null;
+  }
+
+  function getDimFromCSS(el, prop, doc) {
+    // Try inline style first
+    const inlineVal = el.style[prop];
+    if (inlineVal) {
+      const n = parseFloat(inlineVal);
+      if (!isNaN(n)) return n;
+    }
+    // Try to find in stylesheets by looking for CSS variable references
+    // For the specific case of var(--sw) / var(--sh), look for those in styles
+    const allStyles = Array.from(doc.querySelectorAll('style')).map(s => s.textContent).join('\n');
+    if (prop === 'width') {
+      const match = allStyles.match(/--sw\s*:\s*(\d+)/);
+      if (match) return parseInt(match[1]);
+    }
+    if (prop === 'height') {
+      const match = allStyles.match(/--sh\s*:\s*(\d+)/);
+      if (match) return parseInt(match[1]);
+    }
+    return null;
+  }
+
+  /* ── Start Presentation ── */
+  function startPresentation() {
+    landing.style.display = 'none';
+    presentation.style.display = 'block';
+    toolbar.style.display = 'flex';
+    requestAnimationFrame(() => toolbar.classList.add('sv-visible'));
+
+    // Inject imported styles
+    importedStylesContainer.innerHTML = importedLinks + importedStyles;
+
+    renderSlides();
+    goToSlide(0);
+    updateUI();
+  }
+
+  function renderSlides() {
+    stage.innerHTML = '';
+    slides.forEach((slideData, i) => {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'sv-slide';
+      wrapper.dataset.index = i;
+
+      const inner = document.createElement('div');
+      inner.className = 'sv-slide-inner';
+
+      if (slideData.isRichSlide) {
+        // Rich slide: inject the full element HTML; scale to fit viewport
+        inner.innerHTML = slideData.html;
+        // We'll scale it in resizeSlides()
+      } else {
+        // Plain content: use viewer's own styling
+        inner.classList.add('sv-plain');
+        inner.innerHTML = slideData.html;
+      }
+
+      // Mark direct children for animation
+      Array.from(inner.children).forEach(child => child.classList.add('sv-anim-item'));
+
+      wrapper.appendChild(inner);
+      stage.appendChild(wrapper);
+    });
+
+    applyTransitionClass();
+    applyAnimationClass();
+    resizeSlides();
+  }
+
+  /* ── Scale rich slides to fit viewport ── */
+  function resizeSlides() {
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    stage.querySelectorAll('.sv-slide').forEach((wrapper, i) => {
+      const inner = wrapper.querySelector('.sv-slide-inner');
+      if (inner.classList.contains('sv-plain')) return; // plain slides don't need scaling
+
+      const slideData = slides[i];
+      // Detect slide dimensions: try from data, or measure the actual element
+      let sw = slideData.width;
+      let sh = slideData.height;
+
+      if (!sw || !sh) {
+        // Temporarily show to measure
+        inner.style.visibility = 'hidden';
+        inner.style.position = 'absolute';
+        inner.style.transform = 'none';
+        document.body.appendChild(inner);
+        sw = inner.scrollWidth || inner.offsetWidth || 1440;
+        sh = inner.scrollHeight || inner.offsetHeight || 900;
+        wrapper.appendChild(inner);
+        inner.style.visibility = '';
+        inner.style.position = '';
+      }
+
+      const scaleX = (vw * 0.92) / sw;
+      const scaleY = (vh * 0.88) / sh;
+      const scale = Math.min(scaleX, scaleY, 1); // don't upscale past 1
+
+      inner.style.transform = 'scale(' + scale + ')';
+      inner.style.width = sw + 'px';
+      inner.style.height = sh + 'px';
+    });
+  }
+
+  window.addEventListener('resize', () => {
+    resizeSlides();
+    if (particlesOn) initParticles();
+  });
+
+  /* ── Navigation ── */
+  function goToSlide(idx) {
+    if (idx < 0 || idx >= slides.length) return;
+    currentIndex = idx;
+
+    const allSlides = stage.querySelectorAll('.sv-slide');
+    allSlides.forEach((s, i) => {
+      s.classList.remove('sv-active', 'sv-prev', 'sv-next');
+      s.querySelectorAll('.sv-anim-item').forEach(el => el.classList.remove('sv-anim-visible'));
+      if (i === idx) {
+        s.classList.add('sv-active');
+        animateSlideIn(s);
+      } else if (i < idx) {
+        s.classList.add('sv-prev');
+      } else {
+        s.classList.add('sv-next');
+      }
+    });
+    updateUI();
+  }
+
+  function next() { if (currentIndex < slides.length - 1) goToSlide(currentIndex + 1); }
+  function prev() { if (currentIndex > 0) goToSlide(currentIndex - 1); }
+
+  /* ── In-slide Animation ── */
+  function animateSlideIn(slideEl) {
+    if (animation === 'none') {
+      slideEl.querySelectorAll('.sv-anim-item').forEach(el => el.classList.add('sv-anim-visible'));
+      return;
+    }
+    const items = slideEl.querySelectorAll('.sv-anim-item');
+    items.forEach((el, i) => {
+      setTimeout(() => el.classList.add('sv-anim-visible'), 80 + i * 120);
+    });
+  }
+
+  /* ── UI Update ── */
+  function updateUI() {
+    const total = slides.length;
+    const pct = total > 1 ? ((currentIndex) / (total - 1)) * 100 : 100;
+    progressBar.style.width = pct + '%';
+    counter.textContent = (currentIndex + 1) + ' / ' + total;
+    if (overviewOpen) renderOverview();
+  }
+
+  /* ── Transitions ── */
+  function applyTransitionClass() {
+    stage.className = 'sv-trans-' + transition;
+  }
+
+  function applyAnimationClass() {
+    stage.querySelectorAll('.sv-slide').forEach(s => {
+      s.classList.remove('sv-anim-fade-up','sv-anim-scale-in','sv-anim-blur-in','sv-anim-none');
+      s.classList.add('sv-anim-' + animation);
+    });
+  }
+
+  /* ── Toolbar Events ── */
+  $('#sv-sel-transition').addEventListener('change', e => {
+    transition = e.target.value;
+    applyTransitionClass();
+    goToSlide(currentIndex);
+  });
+
+  $('#sv-sel-animation').addEventListener('change', e => {
+    animation = e.target.value;
+    applyAnimationClass();
+    goToSlide(currentIndex);
+  });
+
+  $('#sv-sel-bg').addEventListener('change', e => {
+    document.body.className = document.body.className.replace(/sv-bg-\w+/g, '');
+    document.body.classList.add('sv-bg-' + e.target.value);
+  });
+
+  $('#sv-btn-particles').addEventListener('click', function() {
+    particlesOn = !particlesOn;
+    this.classList.toggle('sv-active', particlesOn);
+    if (particlesOn) startParticles(); else stopParticles();
+  });
+
+  $('#sv-btn-fullscreen').addEventListener('click', toggleFullscreen);
+  $('#sv-btn-overview').addEventListener('click', toggleOverview);
+  $('#sv-btn-export').addEventListener('click', exportPresentation);
+
+  $('#sv-sel-split').addEventListener('change', e => {
+    const wrap = $('#sv-custom-split-wrap');
+    if (e.target.value === 'custom') {
+      wrap.classList.add('sv-show');
+    } else {
+      wrap.classList.remove('sv-show');
+      if (rawHTML) buildSlides('auto');
+    }
+  });
+
+  $('#sv-custom-split-apply').addEventListener('click', () => {
+    const sel = $('#sv-custom-split').value.trim();
+    if (sel && rawHTML) buildSlides('custom', sel);
+  });
+
+  /* ── Keyboard ── */
+  document.addEventListener('keydown', e => {
+    if (presentation.style.display === 'none') return;
+    if (overviewOpen && e.key !== 'o' && e.key !== 'O' && e.key !== 'Escape') return;
+
+    switch(e.key) {
+      case 'ArrowRight': case 'ArrowDown': case ' ':
+        e.preventDefault(); next(); break;
+      case 'ArrowLeft': case 'ArrowUp': case 'Backspace':
+        e.preventDefault(); prev(); break;
+      case 'f': case 'F':
+        e.preventDefault(); toggleFullscreen(); break;
+      case 'o': case 'O':
+        e.preventDefault(); toggleOverview(); break;
+      case 't': case 'T':
+        e.preventDefault(); toggleToolbar(); break;
+      case 'Escape':
+        if (overviewOpen) { toggleOverview(); e.preventDefault(); }
+        else if (document.fullscreenElement) { document.exitFullscreen(); e.preventDefault(); }
+        break;
+    }
+  });
+
+  /* ── Touch / Swipe ── */
+  let touchStartX = 0, touchStartY = 0;
+  document.addEventListener('touchstart', e => {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+  }, { passive: true });
+  document.addEventListener('touchend', e => {
+    if (presentation.style.display === 'none' || overviewOpen) return;
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    const dy = e.changedTouches[0].clientY - touchStartY;
+    if (Math.abs(dx) > Math.abs(dy) && Math.abs(dx) > 50) {
+      if (dx < 0) next(); else prev();
+    }
+  }, { passive: true });
+
+  /* ── Fullscreen ── */
+  function toggleFullscreen() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(()=>{});
+    } else {
+      document.exitFullscreen();
+    }
+  }
+
+  let toolbarHidden = false;
+  function toggleToolbar() {
+    toolbarHidden = !toolbarHidden;
+    toolbar.classList.toggle('sv-hidden', toolbarHidden);
+    toolbar.classList.toggle('sv-autohide', toolbarHidden);
+  }
+
+  // Auto-hide toolbar on entering fullscreen, restore on exit
+  document.addEventListener('fullscreenchange', () => {
+    if (document.fullscreenElement) {
+      toolbarHidden = true;
+      toolbar.classList.add('sv-hidden', 'sv-autohide');
+    } else {
+      toolbarHidden = false;
+      toolbar.classList.remove('sv-hidden', 'sv-autohide');
+    }
+  });
+
+  /* ── Overview ── */
+  function toggleOverview() {
+    overviewOpen = !overviewOpen;
+    overview.classList.toggle('sv-open', overviewOpen);
+    if (overviewOpen) renderOverview();
+  }
+
+  function renderOverview() {
+    overviewGrid.innerHTML = '';
+    slides.forEach((slideData, i) => {
+      const card = document.createElement('div');
+      card.className = 'sv-overview-card' + (i === currentIndex ? ' sv-current' : '');
+
+      const content = document.createElement('div');
+      content.className = 'sv-card-content';
+      content.innerHTML = slideData.html;
+
+      const num = document.createElement('span');
+      num.className = 'sv-card-num';
+      num.textContent = i + 1;
+
+      card.appendChild(content);
+      card.appendChild(num);
+
+      card.addEventListener('click', () => {
+        goToSlide(i);
+        toggleOverview();
+      });
+      overviewGrid.appendChild(card);
+
+      // Scale thumbnail to fit card
+      requestAnimationFrame(() => {
+        const cw = card.offsetWidth;
+        const ch = card.offsetHeight;
+        const sw = content.scrollWidth || 1440;
+        const sh = content.scrollHeight || 900;
+        const scale = Math.min(cw / sw, ch / sh);
+        content.style.transform = 'scale(' + scale + ')';
+        content.style.width = sw + 'px';
+        content.style.height = sh + 'px';
+      });
+    });
+  }
+
+  /* ── Particles ── */
+  let particles = [];
+
+  function initParticles() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    particles = [];
+    const count = Math.floor((canvas.width * canvas.height) / 8000);
+    for (let i = 0; i < count; i++) {
+      particles.push({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        r: Math.random() * 1.8 + 0.5,
+        dx: (Math.random() - 0.5) * 0.4,
+        dy: (Math.random() - 0.5) * 0.4,
+        o: Math.random() * 0.4 + 0.1
+      });
+    }
+  }
+
+  function drawParticles() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    particles.forEach(p => {
+      p.x += p.dx; p.y += p.dy;
+      if (p.x < 0) p.x = canvas.width;
+      if (p.x > canvas.width) p.x = 0;
+      if (p.y < 0) p.y = canvas.height;
+      if (p.y > canvas.height) p.y = 0;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,255,' + p.o + ')';
+      ctx.fill();
+    });
+    animFrameId = requestAnimationFrame(drawParticles);
+  }
+
+  function startParticles() {
+    initParticles();
+    drawParticles();
+  }
+
+  function stopParticles() {
+    cancelAnimationFrame(animFrameId);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  }
+
+  /* ── Export ── */
+  function exportPresentation() {
+    const bgClass = Array.from(document.body.classList).find(c => c.startsWith('sv-bg-')) || 'sv-bg-default';
+    const transClass = 'sv-trans-' + transition;
+    const animClass = 'sv-anim-' + animation;
+
+    let slidesHTML = '';
+    slides.forEach((slideData, i) => {
+      const cls = 'sv-slide' + (i === 0 ? ' sv-active' : (i < currentIndex ? ' sv-prev' : ' sv-next'));
+      const innerCls = 'sv-slide-inner' + (slideData.isRichSlide ? '' : ' sv-plain');
+      slidesHTML += '<div class="' + cls + ' ' + animClass + '"><div class="' + innerCls + '">' + slideData.html + '</div></div>\n';
+    });
+
+    // Gather our viewer styles
+    const viewerStyle = document.querySelector('style').textContent;
+
+    const exported = '<!DOCTYPE html>\n<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">\n<title>Exported Presentation</title>\n' +
+      importedLinks +
+      '<style>' + viewerStyle + '</style>\n' +
+      importedStyles +
+      '</head><body class="' + bgClass + '">\n' +
+      '<div id="sv-presentation" style="display:block;height:100%;width:100%;position:relative;overflow:hidden">\n' +
+      '<div id="sv-stage" class="' + transClass + '" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;perspective:1200px">\n' +
+      slidesHTML +
+      '</div></div>\n' +
+      '<div id="sv-progress-bar" style="width:0%"></div>\n' +
+      '<div id="sv-slide-counter">1 / ' + slides.length + '</div>\n' +
+      '<script>\n' +
+      '(function(){var idx=0,allS=document.querySelectorAll(".sv-slide"),total=allS.length;\n' +
+      'function fit(){var vw=window.innerWidth,vh=window.innerHeight;allS.forEach(function(w){var inner=w.querySelector(".sv-slide-inner");if(inner.classList.contains("sv-plain"))return;var sw=inner.scrollWidth||1440,sh=inner.scrollHeight||900;var s=Math.min((vw*0.92)/sw,(vh*0.88)/sh,1);inner.style.transform="scale("+s+")";inner.style.width=sw+"px";inner.style.height=sh+"px";});}\n' +
+      'function go(n){if(n<0||n>=total)return;idx=n;allS.forEach(function(s,i){s.classList.remove("sv-active","sv-prev","sv-next");if(i===n)s.classList.add("sv-active");else if(i<n)s.classList.add("sv-prev");else s.classList.add("sv-next");});document.getElementById("sv-progress-bar").style.width=(total>1?((n/(total-1))*100):100)+"%";document.getElementById("sv-slide-counter").textContent=(n+1)+" / "+total;}\n' +
+      'document.addEventListener("keydown",function(e){if(e.key==="ArrowRight"||e.key===" "){e.preventDefault();go(idx+1);}if(e.key==="ArrowLeft"||e.key==="Backspace"){e.preventDefault();go(idx-1);}if(e.key==="f"||e.key==="F"){if(!document.fullscreenElement)document.documentElement.requestFullscreen();else document.exitFullscreen();}});\n' +
+      'var sx=0;document.addEventListener("touchstart",function(e){sx=e.touches[0].clientX;},{passive:true});document.addEventListener("touchend",function(e){var dx=e.changedTouches[0].clientX-sx;if(Math.abs(dx)>50){if(dx<0)go(idx+1);else go(idx-1);}},{passive:true});\n' +
+      'window.addEventListener("resize",fit);fit();go(0);\n' +
+      '})();\n' +
+      '<\/script></body></html>';
+
+    const blob = new Blob([exported], { type: 'text/html' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'presentation.html';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+})();
+</script>
+</body>
+</html>
